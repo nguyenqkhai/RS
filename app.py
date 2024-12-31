@@ -24,7 +24,7 @@ cred = credentials.Certificate("./firebase.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-API_KEY = 'AIzaSyA-MXmD63bKUTvprnARLAZqGPpIqHZZ6iA'
+API_KEY = 'AIzaSyAcxRCnVwccCV9oMsmJjM85UWLq2JUmOb0'
 EXCLUDED_KEYWORDS = ['mix', 'playlist', 'compilation', 'non-stop']
 
 def get_favorite_songs(user_id):
@@ -115,10 +115,8 @@ def retry_request(func, retries=3):
 
 @lru_cache(maxsize=100)  
 def get_song_genre(song_name: str, client_id: str, client_secret: str) -> List[str]:
-    # Get the access token
     access_token = retry_request(lambda: get_spotify_access_token(client_id, client_secret))
 
-    # Search for the song
     search_url = "https://api.spotify.com/v1/search"
     search_params = {"q": song_name, "type": "track", "limit": 1}
     search_headers = {"Authorization": f"Bearer {access_token}"}
@@ -145,28 +143,34 @@ def get_song_genre(song_name: str, client_id: str, client_secret: str) -> List[s
 def filter_music_videos(videos):
     video_ids = [video['id']['videoId'] for video in videos if video['id']['kind'] == 'youtube#video']
     details_url = f'https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id={",".join(video_ids)}&key={API_KEY}'
+    
     try:
         response = requests.get(details_url)
         response.raise_for_status()
         video_data = response.json()
         filtered_videos = []
+        excluded_keywords = ['mix', 'playlist', 'compilation', 'non-stop', 'audio', 'remix', 'track']
+        
         for item in video_data.get('items', []):
             duration = parse_duration_iso8601(item['contentDetails']['duration'])
             title = item['snippet']['title']
-            if 120 <= duration <= 420 and not any(keyword.lower() in title.lower() for keyword in EXCLUDED_KEYWORDS):
+            description = item['snippet']['description']
+            
+            if 120 <= duration <= 420 and not any(keyword.lower() in title.lower() or keyword.lower() in description.lower() for keyword in excluded_keywords):
                 filtered_videos.append({
                     'name': title,
                     'artists': item['snippet']['channelTitle'],
                     'videoUrl': f'https://music.youtube.com/watch?v={item["id"]}',
                     'image': item['snippet']['thumbnails']['high']['url'],
                     'id': item['id'],
-                    'genres' : get_song_genre(title, CLIENT_ID, CLIENT_SECRET)
+                    'genres': get_song_genre(item['snippet']['channelTitle'], CLIENT_ID, CLIENT_SECRET)
                 })
                 
         return filtered_videos
     except requests.RequestException as e:
         print(f"Error fetching video details: {e}")
         return []
+
 
 def get_music_list_by_keyword(keyword: str, max_items: int = 50):
     try:
